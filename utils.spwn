@@ -1,0 +1,20 @@
+#[cache_output]
+
+impl @array {
+    find: (self, value) {
+        for i in 0..self.length {
+            if self[i] == value {
+                return value
+            }
+        }
+    },
+    filter_map_indexes: (self, cb: (_) -> @bool) {
+        let output = []
+        for i in 0..self.length {
+            if cb(self[i]) {
+                output.push(i)
+            }
+        }
+        return output
+    },
+}

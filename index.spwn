@@ -1,0 +1,26 @@
+import "pcmn.spwn"
+extract import "constant.spwn"
+
+BG.set(rgb(0,0,0))
+GROUND.set(rgb(0,0,0))
+LINE.set(rgb(0,0,0))
+
+level_1 = $.readfile("levels/level_1.txt")
+
+pcmn = @pcmn::new(level_1, 45, 45, 1)
+
+let pcmn.pacman = @pacman::new()
+let pcmn.ghosts = [
+    @ghost::new(BLINKY),
+    @ghost::new(PINKY),
+    @ghost::new(INKY),
+    @ghost::new(CLYDE),
+]
+
+on(touch(), !{
+    for ghost in pcmn.ghosts {
+        ghost.update_target(pcmn)
+    }
+})
+
+$.print(pcmn)

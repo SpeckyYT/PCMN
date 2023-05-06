@@ -1,0 +1,287 @@
+#[cache_output]
+
+extract obj_props
+extract import "constant.spwn"
+import "utils.spwn"
+
+type @pcmn
+impl @pcmn {
+    // generates game
+    new: (
+        map: @string,
+        x_offset: @number,
+        y_offset: @number,
+        scaling: @number = 1,
+        everything_group: @group = ?g,
+        wall: @block = ?b,
+        no_up: @block = ?b,
+    ) {
+        lines = map.replace(r"\r?\n","\n").split("\n").filter(l => l.length > 0).reverse()
+        
+        let pellets = []
+        let super_pellets = []
+
+        for y in 0..lines.length {
+            let line = lines[y] + lines[y].reverse() // left side + mirror 
+            
+            for x in 0..line.length {
+                actual_x = x_offset + x * 30 * scaling
+                actual_y = y_offset + y * 30 * scaling
+
+                match line[x] {
+                    // walls
+                    =="#": $.add(obj {
+                        OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                        X: actual_x,
+                        Y: actual_y,
+                        GROUPS: everything_group,
+                        BLOCK_A: wall,
+                        SCALING: 1 * scaling,
+                    }),
+
+                    // pellet
+                    =="P": () {
+                        pellet = @pellet::new()
+                        pellets.push(pellet)
+                        $.add(obj {
+                            OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                            X: actual_x,
+                            Y: actual_y,
+                            GROUPS: [ everything_group, pellet.group ],
+                            BLOCK_A: pellet.block,
+                            SCALING: 0.3 * scaling,
+                        })
+                    } (),
+
+                    // super pellets
+                    =="S": () {
+                        super_pellet = @pellet::new()
+                        super_pellets.push(super_pellet)
+                        $.add(obj {
+                            OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                            X: actual_x,
+                            Y: actual_y,
+                            GROUPS: [ everything_group, super_pellet.group ],
+                            BLOCK_A: super_pellet.block,
+                            SCALING: 0.6 * scaling,
+                        })
+                    } (),
+
+                    // ghost's no "up" spots
+                    =="N": $.add(obj {
+                        OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                        X: actual_x,
+                        Y: actual_y,
+                        GROUPS: everything_group,
+                        BLOCK_A: no_up,
+                        SCALING: 1 * scaling,
+                    }),
+
+                    // ghost's no "up" spots (with pellets)
+                    =="M": () {
+                        pellet = @pellet::new()
+                        pellets.push(pellet)
+                        $.add(obj {
+                            OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                            X: actual_x,
+                            Y: actual_y,
+                            GROUPS: [ everything_group, pellet.group ],
+                            BLOCK_A: pellet.block,
+                            SCALING: 0.3 * scaling,
+                        })
+                        $.add(obj {
+                            OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                            X: actual_x,
+                            Y: actual_y,
+                            GROUPS: everything_group,
+                            BLOCK_A: no_up,
+                            SCALING: 1 * scaling,
+                        })
+                    } (),
+
+                    // ghost house door
+                    =="H": $.add(obj { // just a wall 💀
+                        OBJ_ID: obj_ids.special.COLLISION_BLOCK,
+                        X: actual_x,
+                        Y: actual_y,
+                        GROUPS: everything_group,
+                        BLOCK_A: wall,
+                        SCALING: 1 * scaling,
+                    }),
+
+                    // ghost house (basically blank spots)
+                    =="G": () { } (),
+
+                    // nothing
+                    ==" ": () { } (),
+                }
+            }
+        } 
+
+        return @pcmn::{
+            x: x_offset, y: y_offset,
+            scaling,
+            pellets,
+            super_pellets,
+
+            pacman: null,
+            ghosts: [],
+
+            group: everything_group,
+            wall,
+            no_up,
+        }
+    },
+}
+
+type @pellet
+impl @pellet {
+    new: () => @pellet::{
+        group: ?g,
+        block: ?b,
+    }
+}
+
+type @pacman
+impl @pacman {
+    new: () {
+        return @pacman::{
+            position: {
+                x: counter(bits = WIDTH_BITS),
+                y: counter(bits = HEIGHT_BITS),
+            },
+            hand: {
+                group: ?g,
+                block: ?b,
+            },
+            direction: counter(bits = 2), // 0 left, 1 up, 2 right, 3 down
+        }
+    },
+}
+
+type @ghost
+impl @ghost {
+    new: (kind: @number) {
+        id = ?b
+        if !(kind in [ BLINKY, PINKY, INKY, CLYDE ]) {
+            throw "👻 invalid ghost"
+        }
+        return @ghost::{
+            kind,
+            block: id,
+            hands: [ ?b for i in 0..4 ],
+            position: {
+                x: counter(bits = WIDTH_BITS),
+                y: counter(bits = HEIGHT_BITS),
+            },
+            target: {
+                x: counter(bits = WIDTH_BITS),
+                y: counter(bits = HEIGHT_BITS),
+            },
+            mode: counter(bits = 2),
+            partnered_inky: false, // for blinky (or other ghosts if blinky is not present)
+            partner_ghost: { // for inky
+                x: null,
+                y: null,
+            }
+        }
+    },
+    set_target_to_pacman: (self, pacman: @pacman, number: @number = 0, set: @bool = true) {
+        -> if set {
+            self.target.x = pacman.position.x
+            self.target.y = pacman.position.y
+        }
+
+        -> if number != 0 {
+            -> if pacman.direction == LEFT || pacman.direction == UP { self.target.x -= 4 }
+            -> if pacman.direction == UP { self.target.y += 4 }
+            -> if pacman.direction == RIGHT { self.target.x += 4 }
+            -> if pacman.direction == DOWN { self.target.y -= 4 }
+        }
+    },
+    update_target: (self, &pcmn: @pcmn) {
+        pacman = pcmn.pacman
+
+        match self.mode {
+            ==CHASE: () {
+                match self.kind {
+                    ==BLINKY: () { // blinky (the red one™)
+                        self.target.x = pacman.position.x
+                        self.target.y = pacman.position.y
+                    } (),
+                    ==PINKY: () { // pinky (the pink one™)
+                        self.set_target_to_pacman(pacman, 4)
+                    } (),
+                    ==INKY: () { // inky (the cyan one™)
+                        self.set_target_to_pacman(pacman, 2)
+
+                        self.partner_ghost.x
+                    } (),
+                    ==CLYDE: () { // clyde (the orange one™)
+                        x_distance = counter(bits = WIDTH_BITS)
+                        -> x_distance += match pacman.position.x > self.position.x {
+                            ==true: pacman.position.x - self.position.x,
+                            ==false: self.position.x - pacman.position.x,
+                        }
+                        y_distance = counter(bits = HEIGHT_BITS)
+                        -> y_distance += match pacman.position.y > self.position.y {
+                            ==true: pacman.position.y - self.position.y,
+                            ==false: self.position.y - pacman.position.y,
+                        }
+
+                        if x_distance + y_distance >= 8^2 {
+                            self.target.x = pacman.position.x
+                            self.target.y = pacman.position.y
+                        } else {
+                            scatter_position = self.scatter_position()
+                            self.target.x = scatter_position.x
+                            self.target.y = scatter_position.y
+                        }
+                    } (),
+                }
+            } (),
+            ==SCATTER: () {
+                scatter_position = self.scatter_position()
+                self.target.x = scatter_position.x
+                self.target.y = scatter_position.y 
+            } (),
+            ==FRIGHTENED: () {
+                // random movement
+                // technically in frightened mode the target doesn't change
+                // so I guess this will remain empty
+            } (),
+            ==EATEN: () {
+                // todo: find the ghost house's door
+            } (),
+        }
+    },
+    update_inky_partner: (self, &pcmn: @pcmn) {
+        if self.kind == INKY && self.paired_ghost.x.values() == [ null, null ] {
+            blinkys = pcmn.ghosts.filter_map_indexes(g => g.kind == PINKY)
+            non_inky_ghosts = pcmn.ghosts.filter_map_indexes(g => g.kind != INKY)
+            selected_ghosts = [ blinkys, non_inky_ghosts, pcmn.ghosts ].find(g => g.length > 0)
+            
+            if !selected_ghosts.any(i => !pcmn.ghosts[i].partnered_inky) {
+                for i in selected_ghosts {
+                    pcmn.ghosts[i].partnered_inky = false
+                }
+            }
+
+            for i in 0..selected_ghosts.length {
+                if !selected_ghosts[i].partnered_inky {
+                    selected_ghosts[i].partnered_inky = true
+                    let self.partner_ghost.x = selected_ghosts[i].position.x
+                    let self.partner_ghost.y = selected_ghosts[i].position.y
+                    is_done = true
+                }
+            }
+        }
+    },
+    scatter_position: (self) =>
+        match self.kind {
+            ==BLINKY: { x: 14 * 2, y: 0 },
+            ==PINKY:  { x: 0, y: 0 },
+            ==INKY:   { x: 14 * 2, y: 31 },
+            ==CLYDE:  { x: 0, y: 31 },
+        },
+}

@@ -1,0 +1,21 @@
+#[cache_output]
+
+return {
+    WIDTH_BITS: (14 * 2).log(2).ceil(),
+    HEIGHT_BITS: (31).log(2).ceil(),
+    // directions
+    LEFT: 0,
+    UP: 1,
+    RIGHT: 2,
+    DOWN: 3,
+    // ghosts
+    BLINKY: 0,
+    PINKY: 1,
+    INKY: 2,
+    CLYDE: 3,
+    // ghost modes
+    CHASE: 0,
+    SCATTER: 1,
+    FRIGHTENED: 2,
+    EATEN: 3,
+}
