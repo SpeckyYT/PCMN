@@ -1,10 +1,18 @@
 #[cache_output]
 
+type @pcmn
+type @ghost
+type @pacman
+
 extract obj_props
 extract import "constant.spwn"
 import "utils.spwn"
 
-type @pcmn
+new_pellet = () => {
+    group: ?g,
+    block: ?b,
+}
+
 impl @pcmn {
     // generates game
     new: (
@@ -41,7 +49,7 @@ impl @pcmn {
 
                     // pellet
                     =="P": () {
-                        pellet = @pellet::new()
+                        pellet = new_pellet()
                         pellets.push(pellet)
                         $.add(obj {
                             OBJ_ID: obj_ids.special.COLLISION_BLOCK,
@@ -55,7 +63,7 @@ impl @pcmn {
 
                     // super pellets
                     =="S": () {
-                        super_pellet = @pellet::new()
+                        super_pellet = new_pellet()
                         super_pellets.push(super_pellet)
                         $.add(obj {
                             OBJ_ID: obj_ids.special.COLLISION_BLOCK,
@@ -79,7 +87,7 @@ impl @pcmn {
 
                     // ghost's no "up" spots (with pellets)
                     =="M": () {
-                        pellet = @pellet::new()
+                        pellet = new_pellet()
                         pellets.push(pellet)
                         $.add(obj {
                             OBJ_ID: obj_ids.special.COLLISION_BLOCK,
@@ -132,17 +140,20 @@ impl @pcmn {
             no_up,
         }
     },
+    add_ghosts: (self, ghosts: @ghost|[@ghost]) {
+        let ghosts = match ghosts {
+            @ghost: [ghosts],
+            [@ghost]: ghosts,
+        }
+        self.ghosts += ghosts
+        let self.ghosts = self.ghosts.map((ghost) {
+            let ghost = ghost
+            ghost.update_inky_partner(self)
+            return ghost
+        })
+    },
 }
 
-type @pellet
-impl @pellet {
-    new: () => @pellet::{
-        group: ?g,
-        block: ?b,
-    }
-}
-
-type @pacman
 impl @pacman {
     new: () {
         return @pacman::{
@@ -159,7 +170,6 @@ impl @pacman {
     },
 }
 
-type @ghost
 impl @ghost {
     new: (kind: @number) {
         id = ?b
@@ -256,23 +266,21 @@ impl @ghost {
         }
     },
     update_inky_partner: (self, &pcmn: @pcmn) {
-        if self.kind == INKY && self.paired_ghost.x.values() == [ null, null ] {
+        if self.kind == INKY && self.partner_ghost.values() == [ null, null ] {
             blinkys = pcmn.ghosts.filter_map_indexes(g => g.kind == PINKY)
             non_inky_ghosts = pcmn.ghosts.filter_map_indexes(g => g.kind != INKY)
-            selected_ghosts = [ blinkys, non_inky_ghosts, pcmn.ghosts ].find(g => g.length > 0)
-            
+            all_ghosts = pcmn.ghosts.filter_map_indexes(g => true)
+            selected_ghosts = [ blinkys, non_inky_ghosts, all_ghosts ].find(g => g.length > 0)
             if !selected_ghosts.any(i => !pcmn.ghosts[i].partnered_inky) {
                 for i in selected_ghosts {
                     pcmn.ghosts[i].partnered_inky = false
                 }
             }
-
             for i in 0..selected_ghosts.length {
-                if !selected_ghosts[i].partnered_inky {
-                    selected_ghosts[i].partnered_inky = true
-                    let self.partner_ghost.x = selected_ghosts[i].position.x
-                    let self.partner_ghost.y = selected_ghosts[i].position.y
-                    is_done = true
+                if !pcmn.ghosts[i].partnered_inky {
+                    pcmn.ghosts[i].partnered_inky = true
+                    let self.partner_ghost.x = pcmn.ghosts[i].position.x
+                    let self.partner_ghost.y = pcmn.ghosts[i].position.y
                 }
             }
         }

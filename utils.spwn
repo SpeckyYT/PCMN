@@ -1,10 +1,10 @@
 #[cache_output]
 
 impl @array {
-    find: (self, value) {
+    find: (self, cb: @macro) {
         for i in 0..self.length {
-            if self[i] == value {
-                return value
+            if cb(self[i]) == true {
+                return self[i]
             }
         }
     },
